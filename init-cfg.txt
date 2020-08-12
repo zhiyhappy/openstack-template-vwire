@@ -1,0 +1,2 @@
+type=dhcp-client
+hostname=vwire-demo

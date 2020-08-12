@@ -1,0 +1,12 @@
+parameters:
+  mgmt_network: mgmt_net
+  int_network: internal_net
+  service_network: service_net
+  public_network: public
+  mgmt_subnet: mgmt_subnet
+  int_subnet: internal_subnet
+  service_subnet: service_subnet
+  server_ip: 192.168.111.100
+  pan_interface_ip: 192.168.111.101
+  pan_image: PA90
+  pan_flavor: PA50

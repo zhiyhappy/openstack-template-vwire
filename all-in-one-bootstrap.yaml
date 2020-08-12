@@ -1,0 +1,193 @@
+heat_template_version: 2015-04-30
+
+description: Example template to deploy a PAN firewall with 3 interfaces for vwire mode testing
+
+parameters:
+  pan_image:
+    type: string
+    label: PAN image name
+    description: PAN virtual firewall image to be used for firewall instance
+    default: PA90 
+
+  pan_flavor:
+    type: string
+    label: Flavor
+    description: Type of instance (flavor) to be used for PAN firewall instance
+    default: PA50
+
+  mgmt_network:
+    type: string
+    label: Management network name
+    description: Network to attach management interface
+    default: mgmt_net
+
+  service_network:
+    type: string
+    label: Service network name
+    description: Network to attach Service interface
+    default: service_net
+
+  int_network:
+    type: string
+    label: Internal network name
+    description: Network to attach internal interface
+    default: internal_net
+
+  mgmt_subnet:
+    type: string
+    label: Management subnet name
+    description: Subnet management
+    default: mgmt_subnet
+
+  service_subnet:
+    type: string
+    label: Web subnet name
+    description: Subnet Service
+    default: service_subnet
+
+  int_subnet:
+    type: string
+    label: Internal subnbet name
+    description: Subnet internal
+    default: internal_subnet
+
+  public_network:
+    type: string
+    label: Public network name
+    description: Public network for which floating IP addresses will be allocated
+    default: public
+
+  server_ip:
+    type: string
+    label: fixed server ip address
+    description: fixed server ip address
+    default: 192.168.111.100
+
+  pan_interface_ip:
+    type: string
+    label: fixed pan interface ip address
+    description: fixed pan interface ip address
+    default: 192.168.111.101
+
+resources:
+  allow_ssh_https_icmp_secgroup:
+    type: OS::Neutron::SecurityGroup
+    properties:
+      rules:
+        - protocol: tcp
+          remote_ip_prefix: 0.0.0.0/0
+          port_range_min: 22
+          port_range_max: 22
+        - protocol: tcp
+          remote_ip_prefix: 0.0.0.0/0
+          port_range_min: 443
+          port_range_max: 443
+        - protocol: icmp
+          remote_ip_prefix: 0.0.0.0/0
+
+  pan_mgmt_port:
+    type: OS::Neutron::Port
+    properties:
+      network: { get_param: mgmt_network }
+      security_groups:
+        - { get_resource: allow_ssh_https_icmp_secgroup }
+      fixed_ips:
+        - subnet: { get_param: mgmt_subnet }
+
+  pan_service_port:
+    type: OS::Neutron::Port
+    properties:
+      network: { get_param: service_network }
+      port_security_enabled: false
+      fixed_ips:
+        - subnet: { get_param: service_subnet }
+          ip_address: { get_param: pan_interface_ip }
+
+  pan_internal_port:
+    type: OS::Neutron::Port
+    properties:
+      network: { get_param: int_network }
+      port_security_enabled: false
+      fixed_ips:
+        - subnet: { get_param: int_subnet }
+          ip_address: { get_param: pan_interface_ip }
+
+  pan_mgmt_floating_ip:
+    type: OS::Neutron::FloatingIP
+    properties:
+      floating_network: { get_param: public_network }
+
+  pan_mgmt_floating_ip_assoc:
+    type: OS::Neutron::FloatingIPAssociation
+    properties:
+      floatingip_id: { get_resource: pan_mgmt_floating_ip }
+      port_id: { get_resource: pan_mgmt_port }
+
+  pan_fw_instance:
+    type: OS::Nova::Server
+    properties:
+      image: { get_param: pan_image }
+      flavor: { get_param: pan_flavor }
+      networks:
+        - port: { get_resource: pan_mgmt_port }
+        - port: { get_resource: pan_internal_port }
+        - port: { get_resource: pan_service_port }
+      user_data_format: RAW
+      config_drive: true
+      personality:
+        /config/init-cfg.txt: {get_file: "/root/init-cfg.txt"}
+        /config/bootstrap.xml: {get_file: "/root/bootstrap.xml"}
+        /license/authcodes: {get_file: "/root/authcodes"}
+
+  my_server_internal_port:
+    type: OS::Neutron::Port
+    properties:
+      network: { get_param: int_network }
+      port_security_enabled: false
+      fixed_ips:
+        - subnet: { get_param: int_subnet }
+          ip_address: { get_param: server_ip }
+
+  my_server_service_port:
+    type: OS::Neutron::Port
+    properties:
+      network: { get_param: service_network }
+      port_security_enabled: false
+      fixed_ips:
+        - subnet: { get_param: service_subnet }
+          ip_address: { get_param: server_ip }
+
+  my_server_instance:
+    type: OS::Nova::Server
+    properties:
+      flavor: m1.tiny
+      user_data_format: SOFTWARE_CONFIG
+      image: cirros
+      networks:
+      - port: { get_resource: my_server_internal_port }
+
+  my_client_service_port:
+    type: OS::Neutron::Port
+    properties:
+      network: { get_param: service_network }
+      port_security_enabled: false
+
+  my_client_instance:
+    type: OS::Nova::Server
+    properties:
+      flavor: m1.tiny
+      user_data_format: SOFTWARE_CONFIG
+      image: cirros
+      networks:
+      - port: { get_resource: my_client_service_port }
+
+outputs:
+  pan_fw_name:
+    description: Name of the PAN firewall
+    value: { get_attr: [pan_fw_instance, name] }
+  pan_fw_mgmt_ip:
+    description: Management IP address of the PAN firewall in mgmt network 
+    value: { get_attr: [pan_fw_instance, networks, mgmt, 0] }
+  pan_fw_public_ip:
+    description: Floating IP address of PAN firewall in public network
+    value: { get_attr: [ pan_mgmt_floating_ip, floating_ip_address ] }
